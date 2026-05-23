@@ -6,6 +6,7 @@ import logging
 import subprocess
 import tempfile
 from pathlib import Path
+from celery import group
 from app.core.config import settings
 from app.core.celery import celery_app
 from app.core.database import SessionLocal
@@ -17,6 +18,9 @@ from app.services.agents.code_analyzer import CodeAnalyzerAgent
 from app.services.agents.security_reviewer import SecurityReviewerAgent
 from app.services.agents.threat_intel import ThreatIntelAgent
 from app.services.agents.ml_agent import MLAgent
+from app.services.chunker import RepositoryChunker
+from app.services.result_merger import ResultMerger
+from app.tasks.analysis_tasks import analyze_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -216,58 +220,107 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                 f"Initialized scanning workflow for security target: {target_path}",
                 "info",
             )
-            update_scan_status("parsing", 15)
+            update_scan_status("parsing", 20)
             push_activity_log(
                 "Orchestrator AI",
-                "Constructing AST maps and scanning high-entropy values...",
+                "Initiating codebase recursive chunking and formatting filters...",
                 "info",
             )
 
-            with agent_timer(code_analyzer.name):
-                findings = code_analyzer.analyze(target_path, scan_callback=push_activity_log)
-
-            update_scan_status("analyzing", 40)
+            start_time = time.time()
+            chunks = RepositoryChunker.chunk_repository(target_path)
+            logger.info("Chunk count: %d", len(chunks))
             push_activity_log(
                 "Orchestrator AI",
-                "Piping discovered code blocks to the Security Reviewer Agent...",
+                f"Completed codebase chunking. Generated {len(chunks)} chunks for parallel analysis.",
                 "info",
             )
-            with agent_timer(security_reviewer.name):
-                reviewed_findings = security_reviewer.review_findings(
-                    findings, scan_callback=push_activity_log
+
+            all_security = []
+            all_architecture = []
+            all_quality = []
+            all_performance = []
+            all_recommendations = []
+            failed_chunks = 0
+            results = []
+
+            if chunks:
+                update_scan_status("analyzing", 45)
+                push_activity_log(
+                    "Orchestrator AI",
+                    f"Spawning {len(chunks)} parallel Celery chunk analysis tasks targeting Nvidia NIM...",
+                    "info",
+                )
+                
+                # Execute in parallel using Celery group()
+                job = group(analyze_chunk.s(chunk) for chunk in chunks)
+                async_result = job.apply_async(queue=settings.CELERY_QUEUE_NAME)
+                
+                # Wait / collect results
+                logger.info("Enqueued parallel Celery group job. Collecting results...")
+                results = async_result.join()
+                logger.info("Parallel analysis tasks completed. Processing outcomes...")
+
+                # Parse chunk processing progress
+                for idx, r in enumerate(results, 1):
+                    logger.info("Chunk processing progress: chunk %d/%d analyzed.", idx, len(chunks))
+                    if not isinstance(r, dict) or r.get("status") != "success":
+                        failed_chunks += 1
+                        logger.warning("Chunk %d failed to analyze cleanly: %s", idx, r.get("error", "Unknown error"))
+                        continue
+                    
+                    data = r.get("data", {})
+                    if isinstance(data, dict):
+                        all_security.extend(data.get("security_findings") or [])
+                        all_architecture.extend(data.get("architecture_issues") or [])
+                        all_quality.extend(data.get("code_quality") or [])
+                        all_performance.extend(data.get("performance_concerns") or [])
+                        all_recommendations.extend(data.get("recommendations") or [])
+            else:
+                push_activity_log(
+                    "Orchestrator AI",
+                    "No supported target code files found in the repository. Bypassing parallel tasks.",
+                    "warning",
                 )
 
-            update_scan_status("enriching", 65)
+            # 3. Merge results
+            update_scan_status("enriching", 75)
             push_activity_log(
                 "Orchestrator AI",
-                "Piping findings to Threat Intelligence Agent for CVE and MITRE mapping...",
+                "Consolidating parallel chunk results and generating dynamic Markdown threat report...",
                 "info",
             )
-            with agent_timer(threat_intel.name):
-                enriched_findings = threat_intel.enrich_findings(
-                    reviewed_findings, scan_callback=push_activity_log
-                )
+            
+            merged_report = ResultMerger.merge_results(results if chunks else [], failed_chunks, len(chunks))
+            logger.info("Merge complete.")
 
-            update_scan_status("scoring", 85)
+            # Calculate risk statistics dynamically
+            critical_count = sum(1 for f in all_security if str(f.get("severity")).lower() == "critical")
+            high_count = sum(1 for f in all_security if str(f.get("severity")).lower() == "high")
+            medium_count = sum(1 for f in all_security if str(f.get("severity")).lower() == "medium")
+            low_count = sum(1 for f in all_security if str(f.get("severity")).lower() == "low")
+            
+            # Deterministic risk scoring: Max 100
+            base_score = float(critical_count * 25 + high_count * 15 + medium_count * 8 + low_count * 3)
+            risk_score = min(100.0, base_score)
+
+            update_scan_status("scoring", 90)
             push_activity_log(
                 "Orchestrator AI",
-                "Running Machine Learning risk classifier models...",
-                "info",
+                f"Scan risk profile formulated: Score={risk_score}/100 (Critical: {critical_count}, High: {high_count})",
+                "success",
             )
-            with agent_timer(ml_agent.name):
-                ml_profile = ml_agent.assess_risk(
-                    enriched_findings, target_path, scan_callback=push_activity_log
-                )
 
+            # 4. DB Storage
             try:
                 db.query(Finding).filter(Finding.scan_id == scan_id).delete()
 
-                for f in enriched_findings:
+                for f in all_security:
                     finding_obj = Finding(
                         scan_id=scan_id,
-                        title=f["title"],
-                        description=f["description"],
-                        severity=f["severity"],
+                        title=f.get("title", "Logical Vulnerability"),
+                        description=f.get("description", "Semantic vulnerability flagged during hybrid AI audit."),
+                        severity=f.get("severity", "Medium"),
                         file_path=f.get("file_path"),
                         line_number=f.get("line_number"),
                         code_snippet=f.get("code_snippet"),
@@ -275,7 +328,7 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                         cve=f.get("cve"),
                         mitre_attack=f.get("mitre_attack"),
                         owasp_category=f.get("owasp_category"),
-                        confidence=f.get("confidence"),
+                        confidence=f.get("confidence", "High"),
                         package=f.get("package"),
                         current_version=f.get("current_version"),
                         fixed_version=f.get("fixed_version"),
@@ -287,11 +340,11 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                 scan = db.query(Scan).filter(Scan.id == scan_id).first()
                 if scan:
                     scan.status = "completed"
-                    scan.risk_score = ml_profile["risk_score"]
-                    scan.critical_count = ml_profile["critical_count"]
-                    scan.high_count = ml_profile["high_count"]
-                    scan.medium_count = ml_profile["medium_count"]
-                    scan.low_count = ml_profile["low_count"]
+                    scan.risk_score = risk_score
+                    scan.critical_count = critical_count
+                    scan.high_count = high_count
+                    scan.medium_count = medium_count
+                    scan.low_count = low_count
                     scan.completed_at = datetime.datetime.now(datetime.timezone.utc)
                     scan.current_phase = "done"
                     scan.progress = 100
@@ -304,19 +357,23 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                 )
                 raise
 
+            elapsed = time.time() - start_time
+            logger.info("Task completion time: %.2f seconds.", elapsed)
+
             push_activity_log(
                 "Orchestrator AI",
-                "Pipeline successfully completed. Export models are compiled and ready.",
+                f"Pipeline successfully completed in {elapsed:.1f}s. Export models are compiled and ready.",
                 "success",
             )
             _broadcast(scan_id, "completed", {
                 "scan_id": scan_id,
-                "risk_score": ml_profile["risk_score"],
-                "critical_count": ml_profile["critical_count"],
-                "high_count": ml_profile["high_count"],
-                "medium_count": ml_profile["medium_count"],
-                "low_count": ml_profile["low_count"],
+                "risk_score": risk_score,
+                "critical_count": critical_count,
+                "high_count": high_count,
+                "medium_count": medium_count,
+                "low_count": low_count,
             })
+
 
     except Exception as err:
         logger.exception(

@@ -75,7 +75,7 @@ services:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
       - PREFERRED_LLM_PROVIDER=nvidia
     command: >
-      bash -c "LC_ALL=C python -m celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=2"
+      bash -c "LC_ALL=C python -m celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=4 --prefetch-multiplier=1"
 
 volumes:
   pgdata:

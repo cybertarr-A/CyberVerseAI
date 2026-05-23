@@ -32,4 +32,7 @@ celery_app.conf.update(
 )
 
 # Explicitly register tasks module for discovery
-celery_app.conf.imports = ["app.tasks.scan_tasks"]
+celery_app.conf.imports = [
+    "app.tasks.scan_tasks",
+    "app.tasks.analysis_tasks"
+]

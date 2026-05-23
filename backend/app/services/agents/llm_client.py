@@ -11,7 +11,18 @@ logger = logging.getLogger("cyberverse.llm_client")
 
 class LLMClient:
     def __init__(self):
-        logger.info("Initialized CyberVerse LLM Gateway targeting Nvidia NIM.")
+        limits = httpx.Limits(
+            max_keepalive_connections=20,
+            max_connections=50
+        )
+        timeout = httpx.Timeout(
+            connect=30.0,
+            read=300.0,
+            write=30.0,
+            pool=30.0
+        )
+        self.client = httpx.Client(limits=limits, timeout=timeout)
+        logger.info("Initialized CyberVerse LLM Gateway targeting Nvidia NIM with persistent client pooling.")
 
     @property
     def nvidia_key(self) -> Optional[str]:
@@ -27,49 +38,74 @@ class LLMClient:
         return settings.NVIDIA_MODEL or "moonshotai/kimi-k2.6"
 
     def generate_completion(self, system_prompt: str, user_prompt: str, max_retries: int = 5) -> Optional[str]:
-        """Generates a text completion via Nvidia NIM API."""
+        """Generates a text completion via Nvidia NIM API using retry logic with backoff."""
         key = self.nvidia_key
         model = self.nvidia_model
-        if key:
-            headers = {
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.1,
-            }
-            
-            for attempt in range(max_retries):
-                try:
-                    logger.info("Dispatching prompt to Nvidia NIM (%s) [Attempt %d/%d]...", model, attempt + 1, max_retries)
-                    response = httpx.post(
-                        "https://integrate.api.nvidia.com/v1/chat/completions",
-                        json=payload,
-                        headers=headers,
-                        timeout=30.0,
-                    )
-                    
-                    if response.status_code == 429:
-                        wait_time = 2 ** attempt
-                        logger.warning("Rate limited by Nvidia NIM (429). Retrying in %d seconds...", wait_time)
-                        time.sleep(wait_time)
-                        continue
-                        
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
-                except Exception as e:
-                    logger.exception(
-                        "Nvidia NIM API execution failed: %s", e
-                    )
-                    break
-        else:
+        if not key:
             logger.warning("Nvidia API Key is absent. Utilizing deterministic local heuristics.")
-        return None
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.1,
+        }
+        
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info(
+                    "Dispatching prompt to Nvidia NIM (%s) [Attempt %d/%d]...",
+                    model,
+                    attempt,
+                    max_attempts
+                )
+                response = self.client.post(
+                    "https://integrate.api.nvidia.com/v1/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+                
+                if response.status_code == 429:
+                    wait_time = 2 ** attempt
+                    logger.warning(
+                        "Rate limited by Nvidia NIM (429). Attempt %d/%d. Retrying in %d seconds...",
+                        attempt,
+                        max_attempts,
+                        wait_time
+                    )
+                    time.sleep(wait_time)
+                    continue
+                    
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.NetworkError) as e:
+                wait_time = 2 ** attempt
+                logger.warning(
+                    "Nvidia NIM API connection/timeout error on Attempt %d/%d (Error: %s). Retrying in %d seconds...",
+                    attempt,
+                    max_attempts,
+                    str(e),
+                    wait_time
+                )
+                if attempt == max_attempts:
+                    logger.error("Nvidia NIM LLM connection failed after %d attempts.", max_attempts)
+                    raise RuntimeError(
+                        f"Nvidia NIM LLM API connection failed after {max_attempts} attempts due to time-out or network error: {e}"
+                    ) from e
+                time.sleep(wait_time)
+            except Exception as e:
+                logger.exception("Nvidia NIM API execution encountered an unhandled exception: %s", e)
+                raise RuntimeError(f"Nvidia NIM API failed with an unhandled exception: {e}") from e
+                
+        raise RuntimeError(f"Nvidia NIM API failed after {max_attempts} attempts.")
 
     def generate_structured_json(
         self, system_prompt: str, user_prompt: str, fallback_dict: Any
