@@ -1,0 +1,51 @@
+# Logs
+*.log
+backend/backend.log
+
+# Databases and user uploads
+backend/instance/
+*.db
+*.db-journal
+*.sqlite
+
+# Environment configuration files
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+backend/.env.development
+backend/.env.production
+
+# Compiled python files
+__pycache__/
+backend/__pycache__/
+backend/app/**/__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+backend/.venv/
+
+# Test and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+
+# Node / Frontend build output
+node_modules/
+.next/
+dist/
+build/
+out/
+.env.production.local
+.env.development.local
+frontend/tsconfig.tsbuildinfo
+
+# Ephemeral scan workspaces (runtime only)
+/tmp/cyberverse_scans/
+celerybeat-schedule
+*.pid
+backend/.pids/

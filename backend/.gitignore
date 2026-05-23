@@ -1,0 +1,27 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Databases and user uploads
+instance/
+*.db
+*.db-journal
+*.sqlite
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+backend.log
+
+# Celery runtime
+celerybeat-schedule
+*.pid

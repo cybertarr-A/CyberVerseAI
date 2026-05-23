@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+:root {
+  --neon-cyan: #00f3ff;
+  --neon-pink: #ff007f;
+  --neon-purple: #8a2be2;
+  --cyber-dark: #07070e;
+  --cyber-panel: rgba(13, 13, 25, 0.7);
+  --foreground: #e0e5ff;
+}
+
+body {
+  background-color: var(--cyber-dark);
+  color: var(--foreground);
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090915;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--neon-purple);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-cyan);
+}
+
+/* Cyber CRT screen scanline effects */
+.crt-effect {
+  position: relative;
+  overflow: hidden;
+}
+.crt-effect::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 10;
+  background-size: 100% 4px, 6px 100%;
+  pointer-events: none;
+}
+
+/* Custom Glassmorphism Panels */
+.cyber-panel-cyan {
+  background: var(--cyber-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 243, 255, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), inset 0 0 10px rgba(0, 243, 255, 0.05);
+}
+.cyber-panel-pink {
+  background: var(--cyber-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 0, 127, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), inset 0 0 10px rgba(255, 0, 127, 0.05);
+}
+.cyber-panel-purple {
+  background: var(--cyber-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(138, 43, 226, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), inset 0 0 10px rgba(138, 43, 226, 0.05);
+}
+
+/* Glow effects */
+.glow-text-cyan {
+  text-shadow: 0 0 8px rgba(0, 243, 255, 0.8), 0 0 15px rgba(0, 243, 255, 0.3);
+}
+.glow-text-pink {
+  text-shadow: 0 0 8px rgba(255, 0, 127, 0.8), 0 0 15px rgba(255, 0, 127, 0.3);
+}
+.glow-text-purple {
+  text-shadow: 0 0 8px rgba(138, 43, 226, 0.8), 0 0 15px rgba(138, 43, 226, 0.3);
+}
+
+/* Animations */
+@keyframes neon-pulse {
+  0%, 100% {
+    opacity: 0.8;
+    box-shadow: 0 0 10px rgba(0, 243, 255, 0.3), inset 0 0 5px rgba(0, 243, 255, 0.1);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.6), inset 0 0 10px rgba(0, 243, 255, 0.2);
+  }
+}
+.neon-pulse-cyan {
+  animation: neon-pulse 3s infinite ease-in-out;
+}
+
+@keyframes laser-flow {
+  0% { stroke-dashoffset: 24; }
+  100% { stroke-dashoffset: 0; }
+}
+.laser-active {
+  stroke-dasharray: 8;
+  animation: laser-flow 1s linear infinite;
+}
+
+@keyframes grid-drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(40px); }
+}
+.cyber-grid-bg {
+  background-image: 
+    linear-gradient(rgba(0, 243, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 243, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}

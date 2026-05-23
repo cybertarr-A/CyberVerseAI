@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: cyberverse
+      POSTGRES_PASSWORD: securepassword123
+      POSTGRES_DB: cyberverse
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cyberverse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    environment:
+      - APP_ENV=production
+      - HOST=0.0.0.0
+      - PORT=8090
+      - DATABASE_URL=postgresql://cyberverse:securepassword123@db:5432/cyberverse
+      - REDIS_URL=redis://redis:6379/0
+      # Provide a secure key generated via secrets module, or from AWS Secrets Manager
+      - SECRET_KEY=REPLACE_ME_IN_PRODUCTION
+      # The frontend URL hosted on Vercel
+      - CORS_ORIGINS=http://localhost:3000,https://your-vercel-app.vercel.app
+      # API Keys (set these on EC2)
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - PREFERRED_LLM_PROVIDER=nvidia
+    # Automatically run migrations before starting the server
+    command: >
+      bash -c "alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port 8090"
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://cyberverse:securepassword123@db:5432/cyberverse
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=REPLACE_ME_IN_PRODUCTION
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - PREFERRED_LLM_PROVIDER=nvidia
+    command: >
+      bash -c "LC_ALL=C python -m celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=2"
+
+volumes:
+  pgdata:
+  redisdata:
