@@ -4,7 +4,8 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=1 --pool=solo",
+    "startCommand": "celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=2",
+
     "restartPolicyType": "ON_FAILURE"
 
   },
