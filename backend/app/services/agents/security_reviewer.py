@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any
-from app.services.agents.llm_client import llm_client
+from app.services.agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ Provide the detailed secure audit and code remedy in JSON format."""
             if scan_callback:
                 scan_callback(self.name, logger_message, "info")
 
-            llm_result = llm_client.generate_structured_json(system_prompt, user_prompt, fallback_dict)
+            llm_result = LLMClient.get_instance().generate_structured_json(system_prompt, user_prompt, fallback_dict)
 
             reviewed_f = {
                 **f,

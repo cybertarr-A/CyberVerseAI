@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any
-from app.services.agents.llm_client import llm_client
+from app.services.agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ Provide the professional Threat Intelligence context in JSON format."""
                     ),
                 }
 
-            llm_result = llm_client.generate_structured_json(
+            llm_result = LLMClient.get_instance().generate_structured_json(
                 system_prompt, user_prompt, fallback_dict
             )
 

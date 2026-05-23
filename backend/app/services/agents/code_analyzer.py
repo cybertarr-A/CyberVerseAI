@@ -8,7 +8,7 @@ from typing import List, Dict, Any
 from packaging import version
 from packaging.version import InvalidVersion
 from app.services.analyzer.ast_analyzer import StaticSecurityScanner, redact_secrets_in_text
-from app.services.agents.llm_client import llm_client
+from app.services.agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ Identify any logical security flaws in this chunk and return the JSON findings a
                         "info"
                     )
 
-                llm_result = llm_client.generate_structured_json(system_prompt, user_prompt, [])
+                llm_result = LLMClient.get_instance().generate_structured_json(system_prompt, user_prompt, [])
                 if isinstance(llm_result, list):
                     for item in llm_result:
                         title = item.get("title", "Logical Vulnerability")

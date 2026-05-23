@@ -3,7 +3,7 @@ import time
 from typing import Dict, Any
 
 from app.core.celery import celery_app
-from app.services.agents.llm_client import llm_client
+from app.services.agents.llm_client import LLMClient
 
 logger = logging.getLogger("cyberverse.analysis_tasks")
 
@@ -89,7 +89,7 @@ Do not wrap JSON in Markdown decorators, introductory text, or closing notes.
     try:
         logger.info("PROCESSING: Dispatching codebase chunk for Groq LLM auditing on task %s.", task_id)
         
-        result = llm_client.generate_structured_json(
+        result = LLMClient.get_instance().generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=chunk,
             fallback_dict=fallback_dict

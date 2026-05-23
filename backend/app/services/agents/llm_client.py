@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 from groq import Groq, RateLimitError, APIConnectionError, APITimeoutError
 
 from app.core.config import settings
@@ -10,8 +10,19 @@ logger = logging.getLogger("cyberverse.llm_client")
 
 
 class LLMClient:
+    """Thread-safe lazy singleton wrapper for Groq Cloud completions API client."""
+
+    _instance: Optional["LLMClient"] = None
+
+    @classmethod
+    def get_instance(cls) -> "LLMClient":
+        """Returns the lazy initialized LLMClient instance."""
+        if cls._instance is None:
+            cls._instance = LLMClient()
+        return cls._instance
+
     def __init__(self):
-        # Enforce strict key validation at constructor instantiation
+        # Enforce strict key validation at initialization
         if not settings.GROQ_API_KEY or settings.GROQ_API_KEY.strip() in ("", "your_groq_api_key_here"):
             raise RuntimeError("GROQ_API_KEY missing")
 
@@ -105,7 +116,3 @@ class LLMClient:
                 e,
             )
             raise ValueError(f"Unparseable JSON structure returned by Groq LLM: {e}") from e
-
-
-# Instantiate globally to trigger import-time load check enforcement
-llm_client = LLMClient()

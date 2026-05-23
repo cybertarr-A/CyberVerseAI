@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any
-from app.services.agents.llm_client import llm_client
+from app.services.agents.llm_client import LLMClient
 
 logger = logging.getLogger("cyberverse.groq_health")
 
@@ -12,8 +12,8 @@ def test_groq() -> Dict[str, Any]:
     """
     try:
         logger.info("Executing live Groq API health connectivity test...")
-        # Send a highly efficient lightweight request
-        response = llm_client.generate_completion(
+        client = LLMClient.get_instance()
+        response = client.generate_completion(
             system_prompt="You are a health checker. Respond with exactly the word OK.",
             user_prompt="Respond with OK"
         )

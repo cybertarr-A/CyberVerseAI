@@ -1,9 +1,10 @@
 import logging
 from celery import Celery
+from celery.signals import worker_ready
 
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cyberverse.celery")
 
 REDIS_URL = settings.REDIS_URL
 
@@ -36,3 +37,34 @@ celery_app.conf.imports = [
     "app.tasks.scan_tasks",
     "app.tasks.analysis_tasks"
 ]
+
+
+@worker_ready.connect
+def validate_worker_config(sender, **kwargs):
+    """Audits integration configurations when the Celery worker starts up."""
+    logger.info("Celery worker booted successfully — starting dynamic environment checks")
+
+    # 1. GROQ_API_KEY Check
+    if not settings.GROQ_API_KEY or settings.GROQ_API_KEY.strip() in ("", "your_groq_api_key_here"):
+        logger.error("Invalid configuration detected")
+        raise ValueError("GROQ_API_KEY missing")
+
+    # 2. REDIS_URL Check
+    if not settings.REDIS_URL or settings.REDIS_URL.strip() == "":
+        logger.error("Invalid configuration detected")
+        raise ValueError("REDIS_URL is not set")
+
+    # 3. DATABASE_URL Check
+    if not settings.DATABASE_URL or settings.DATABASE_URL.strip() == "":
+        logger.error("Invalid configuration detected")
+        raise ValueError("DATABASE_URL is not set")
+
+    # 4. CORS_ORIGINS Check
+    if not isinstance(settings.CORS_ORIGINS, list):
+        logger.error("Invalid configuration detected")
+        raise ValueError("CORS_ORIGINS format invalid")
+
+    logger.info("✓ Groq configured")
+    logger.info("✓ Redis configured")
+    logger.info("✓ Database configured")
+    logger.info("✓ CORS configured")
