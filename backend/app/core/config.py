@@ -1,7 +1,9 @@
 import os
 import tempfile
+import logging
 from pathlib import Path
 from typing import List, Optional
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -9,6 +11,7 @@ from dotenv import load_dotenv
 base_dir = Path(__file__).resolve().parent.parent.parent
 load_dotenv(dotenv_path=base_dir / ".env")
 
+logger = logging.getLogger("cyberverse.config")
 
 
 class Settings(BaseSettings):
@@ -60,7 +63,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     RATE_LIMIT_REDIS_REQUIRED: bool = False
 
-
     # Scan runtime storage
     SCAN_WORKSPACE_ROOT: str = os.path.join(tempfile.gettempdir(), "cyberverse_scans")
     MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
@@ -71,45 +73,68 @@ class Settings(BaseSettings):
         env_file = ".env"
         extra = "ignore"
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors(cls, value):
+        """Production-safe parser for CORS_ORIGINS support values."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            if value == "*":
+                return ["*"]
+            return [
+                origin.strip()
+                for origin in value.split(",")
+                if origin.strip()
+            ]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value]
+        raise ValueError("CORS_ORIGINS format invalid")
+
     def __init__(self, **values):
-        # Override default values using current system environment state
-        raw_origins = os.getenv("CORS_ORIGINS")
-        if raw_origins:
-            values["CORS_ORIGINS"] = [o.strip() for o in raw_origins.split(",") if o.strip()]
+        try:
+            # Load PG_DATABASE_URL or DATABASE_URL env overrides
+            db_url = os.getenv("DATABASE_URL") or os.getenv("PG_DATABASE_URL")
+            if db_url:
+                values["DATABASE_URL"] = db_url
 
-        raw_port = os.getenv("PORT")
-        if raw_port:
-            try:
-                values["PORT"] = int(raw_port)
-            except ValueError:
-                pass
+            # Force environment string for CORS_ORIGINS so field_validator handles it
+            raw_origins = os.getenv("CORS_ORIGINS")
+            if raw_origins:
+                values["CORS_ORIGINS"] = raw_origins
 
-        raw_provider = os.getenv("PREFERRED_LLM_PROVIDER")
-        if raw_provider:
-            values["PREFERRED_LLM_PROVIDER"] = raw_provider.lower().strip()
+            raw_port = os.getenv("PORT")
+            if raw_port:
+                try:
+                    values["PORT"] = int(raw_port)
+                except ValueError:
+                    pass
 
-        db_url = os.getenv("DATABASE_URL") or os.getenv("PG_DATABASE_URL")
-        if db_url:
-            values["DATABASE_URL"] = db_url
+            raw_provider = os.getenv("PREFERRED_LLM_PROVIDER")
+            if raw_provider:
+                values["PREFERRED_LLM_PROVIDER"] = raw_provider.lower().strip()
 
-        redis_url = os.getenv("REDIS_URL")
-        if redis_url:
-            values["REDIS_URL"] = redis_url.strip()
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                values["REDIS_URL"] = redis_url.strip()
 
-        # Handle SECRET_KEY dynamic fallbacks
-        app_env = os.getenv("APP_ENV", "development").lower().strip()
-        secret_key = os.getenv("SECRET_KEY")
-        if not secret_key or secret_key.strip() in (
-            "",
-            "your-secret-key-here",
-            "CYBER_VERSE_GLOWING_NEON_SECRET_2026",
-            "REPLACE_ME_IN_PRODUCTION"
-        ):
-            if app_env != "production":
-                import secrets
-                values["SECRET_KEY"] = secrets.token_urlsafe(64)
+            # Handle SECRET_KEY dynamic fallbacks
+            app_env = os.getenv("APP_ENV", "development").lower().strip()
+            secret_key = os.getenv("SECRET_KEY")
+            if not secret_key or secret_key.strip() in (
+                "",
+                "your-secret-key-here",
+                "CYBER_VERSE_GLOWING_NEON_SECRET_2026",
+                "REPLACE_ME_IN_PRODUCTION"
+            ):
+                if app_env != "production":
+                    import secrets
+                    values["SECRET_KEY"] = secrets.token_urlsafe(64)
 
-        super().__init__(**values)
+            super().__init__(**values)
+        except Exception as e:
+            logger.error("Invalid configuration detected")
+            raise ValueError(f"Configuration initialization failed: {e}") from e
 
 
 settings = Settings()

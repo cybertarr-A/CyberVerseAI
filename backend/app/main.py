@@ -114,10 +114,12 @@ async def lifespan(app: FastAPI):
 
     # 1. Mandatory Startup Validations
     if not settings.GROQ_API_KEY or settings.GROQ_API_KEY.strip() in ("", "your_groq_api_key_here"):
-        raise RuntimeError("CRITICAL STARTUP ERROR: GROQ_API_KEY is missing or empty.")
+        logger.error("Invalid configuration detected")
+        raise ValueError("GROQ_API_KEY missing")
 
-    if not settings.GROQ_MODEL or settings.GROQ_MODEL.strip() == "":
-        raise RuntimeError("CRITICAL STARTUP ERROR: GROQ_MODEL is missing or empty.")
+    if not settings.REDIS_URL or settings.REDIS_URL.strip() == "":
+        logger.error("Invalid configuration detected")
+        raise ValueError("REDIS_URL is not set")
 
     # Redis Connection Validation
     import redis
@@ -125,18 +127,29 @@ async def lifespan(app: FastAPI):
         r = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=3.0)
         r.ping()
     except Exception as e:
-        raise RuntimeError(f"CRITICAL STARTUP ERROR: Failed to connect to Redis at {settings.REDIS_URL}. Error: {e}")
+        logger.error("Invalid configuration detected")
+        raise ValueError(f"REDIS_URL connection failed: {e}")
+
+    if not settings.DATABASE_URL or settings.DATABASE_URL.strip() == "":
+        logger.error("Invalid configuration detected")
+        raise ValueError("DATABASE_URL is not set")
+
+    if not isinstance(settings.CORS_ORIGINS, list):
+        logger.error("Invalid configuration detected")
+        raise ValueError("CORS_ORIGINS format invalid")
 
     # Celery Broker/App Validation
     from app.core.celery import celery_app
     if not celery_app:
-        raise RuntimeError("CRITICAL STARTUP ERROR: Celery app failed to initialize.")
+        logger.error("Invalid configuration detected")
+        raise ValueError("Celery app failed to initialize")
 
     # 2. Output Verbose Checkmark Logs
     logger.info("✓ Groq configured")
-    logger.info("Groq model loaded: %s", settings.GROQ_MODEL)
-    logger.info("✓ Redis connected")
-    logger.info("✓ Celery initialized")
+    logger.info("✓ Redis configured")
+    logger.info("✓ Database configured")
+    logger.info("✓ CORS configured")
+
 
     background_tasks: list[asyncio.Task] = []
     heartbeat_task = asyncio.create_task(ws_manager.run_heartbeat_sweep())
