@@ -1,5 +1,9 @@
 import logging
+import time
 from typing import Dict, Any
+
+import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app.core.celery import celery_app
 from app.services.agents.llm_client import llm_client
@@ -16,62 +20,28 @@ logger = logging.getLogger("cyberverse.analysis_tasks")
     soft_time_limit=300
 )
 def analyze_chunk(self, chunk: str) -> Dict[str, Any]:
-    """
-    Parallel Celery task that queries the Nvidia NIM LLM to analyze a single
-    code chunk for security vulnerabilities, architecture, quality, performance, and recommendations.
-    """
-    logger.info("Celery analysis task %s started on chunk.", self.request.id)
 
-    system_prompt = """You are an elite application architect and production reliability engineer.
-Your task is to analyze the provided code chunk.
+    task_id = self.request.id
+    start_time = time.time()
 
-Identify issues across exactly these five categories:
-1. Security findings: vulnerabilities, logical security flaws, credentials (keys/tokens) exposures.
-2. Architecture issues: anti-patterns, structural design flaws, tight coupling, separation of concerns.
-3. Code quality: technical debt, readability, standard conventions, lack of comments, complex structures.
-4. Performance concerns: memory leak vectors, database query inefficiencies, slow CPU loops, caching opportunities.
-5. Recommendations: concise suggestions to optimize or fix identified issues.
+    logger.info(
+        f"[START] Chunk task={task_id}"
+    )
 
-Respond ONLY with a JSON object that satisfies this exact schema:
-{
-  "security_findings": [
-    {
-      "title": "Finding Title",
-      "description": "Clear explanation of the security issue",
-      "severity": "Critical|High|Medium|Low",
-      "file_path": "Filename or path",
-      "line_number": 12
-    }
-  ],
-  "architecture_issues": [
-    {
-      "title": "Issue Title",
-      "description": "Architectural critique",
-      "severity": "High|Medium|Low"
-    }
-  ],
-  "code_quality": [
-    {
-      "title": "Debt Title",
-      "description": "Readability or quality issue description",
-      "severity": "High|Medium|Low"
-    }
-  ],
-  "performance_concerns": [
-    {
-      "title": "Bottleneck Title",
-      "description": "Performance concern details",
-      "severity": "High|Medium|Low"
-    }
-  ],
-  "recommendations": [
-    "Opt-in recommendation statement 1",
-    "Opt-in recommendation statement 2"
-  ]
-}
+    system_prompt = """
+You are an elite application architect and production reliability engineer.
 
-If a category has no issues, provide an empty list: [].
-Do not wrap JSON in Markdown decorators, introductory text, or closing notes.
+Analyze this code and produce ONLY valid JSON.
+
+Categories:
+
+1 Security findings
+2 Architecture issues
+3 Code quality
+4 Performance concerns
+5 Recommendations
+
+Return only schema-compliant JSON.
 """
 
     fallback_dict = {
@@ -83,18 +53,83 @@ Do not wrap JSON in Markdown decorators, introductory text, or closing notes.
     }
 
     try:
+
+        logger.info(
+            f"[PROCESSING] task={task_id}"
+        )
+
         result = llm_client.generate_structured_json(
             system_prompt=system_prompt,
             user_prompt=chunk,
             fallback_dict=fallback_dict
         )
+
+        execution_time = round(
+            time.time()-start_time,
+            2
+        )
+
+        logger.info(
+            f"[FINISHED] task={task_id} duration={execution_time}s"
+        )
+
         return {
-            "status": "success",
-            "data": result
+
+            "status":"success",
+
+            "task_id":task_id,
+
+            "duration":execution_time,
+
+            "data":result
         }
+
+    except (
+        httpx.ReadTimeout,
+        httpx.ConnectTimeout,
+        httpx.NetworkError
+    ) as exc:
+
+        logger.warning(
+            f"[RETRY] task={task_id} reason={str(exc)}"
+        )
+
+        raise self.retry(
+            exc=exc
+        )
+
+    except SoftTimeLimitExceeded:
+
+        logger.exception(
+            f"[TIME_LIMIT] task={task_id}"
+        )
+
+        return {
+
+            "status":"timeout",
+
+            "task_id":task_id,
+
+            "error":"Task exceeded soft limit"
+        }
+
     except Exception as exc:
-        logger.exception("Failed to analyze codebase chunk: %s", exc)
+
+        logger.exception(
+            f"[FAILED] task={task_id}"
+        )
+
         return {
-            "status": "failed",
-            "error": str(exc)
+
+            "status":"failed",
+
+            "task_id":task_id,
+
+            "error":str(exc)
         }
+
+    finally:
+
+        logger.info(
+            f"[COMPLETE] task={task_id}"
+        )
