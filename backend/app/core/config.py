@@ -103,17 +103,15 @@ else:
 # =========================================================================
 # Preferred Provider & API Keys Settings
 # =========================================================================
-PREFERRED_LLM_PROVIDER = os.getenv("PREFERRED_LLM_PROVIDER", "nvidia").lower().strip()
+PREFERRED_LLM_PROVIDER = os.getenv("PREFERRED_LLM_PROVIDER", "groq").lower().strip()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 
 # API Keys validation in production mode
 if IS_PRODUCTION:
     _provider_key_map = {
-        "nvidia": ("NVIDIA_API_KEY", NVIDIA_API_KEY),
         "anthropic": ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
         "openai": ("OPENAI_API_KEY", OPENAI_API_KEY),
         "groq": ("GROQ_API_KEY", GROQ_API_KEY),
@@ -131,7 +129,8 @@ if IS_PRODUCTION:
 # =========================================================================
 OLLAMA_API_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
-NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "moonshotai/kimi-k2.6")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+
 
 # =========================================================================
 # Settings Class
@@ -169,12 +168,12 @@ class Settings:
     GROQ_API_KEY: str | None = GROQ_API_KEY
     OPENAI_API_KEY: str | None = OPENAI_API_KEY
     ANTHROPIC_API_KEY: str | None = ANTHROPIC_API_KEY
-    NVIDIA_API_KEY: str | None = NVIDIA_API_KEY
     
     # LLM Settings
     OLLAMA_API_BASE: str = OLLAMA_API_BASE
     OLLAMA_MODEL: str = OLLAMA_MODEL
-    NVIDIA_MODEL: str = NVIDIA_MODEL
+    GROQ_MODEL: str = GROQ_MODEL
+
 
     # Redis / Celery
     REDIS_URL: str = REDIS_URL

@@ -246,87 +246,101 @@ export const useCyberStore = create<CyberState>((set, get) => ({
     const wsUrl = `${BACKEND_WS_URL}/ws/scan/${scanId}`;
     console.log("Connecting WebSocket:", wsUrl);
     
-    const ws = new WebSocket(wsUrl);
+    let reconnectDelay = 1000;
+    let reconnectTimeoutId: any = null;
 
-/* store immediately */
-set({
-  wsConnection: ws
-});
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      set({ wsConnection: ws });
 
-ws.onopen = () => {
-  console.log(
-    "WebSocket connected:",
-    scanId
-  );
-};
+      ws.onopen = () => {
+        console.log("WebSocket connected:", scanId);
+        reconnectDelay = 1000;
+      };
 
-    ws.onerror = (event) => {
-      console.error("WebSocket error:", event);
-    };
+      ws.onerror = (event) => {
+        console.error("WebSocket error:", event);
+      };
 
-    ws.onclose = (event) => {
-      console.log("WebSocket closed:", event.code);
-      set({ wsConnection: null });
-    };
-    
-    ws.onmessage = async (event) => {
-      let msg;
-      try {
-        msg = JSON.parse(event.data);
-      } catch {
-        console.warn('WebSocket received non-JSON message:', event.data);
-        return;
-      }
-      if (msg.event === 'log') {
-        const item: AgentLog = msg.data;
-        
-        // Set agent telemetry statuses based on logs
-        const updatedAgents = { ...get().agents };
-        const agent = item.agent_name;
-        
-        // Telemetry dynamics
-        if (updatedAgents[agent]) {
-          const currentProgress = get().progress;
-          updatedAgents[agent] = {
-            status: item.type === 'success' ? 'COMPLETED' : 'PROCESSING',
-            lastInstruction: item.message,
-            load: item.type === 'success' ? 0 : Math.min(95, Math.max(10, currentProgress))
-          };
+      ws.onclose = (event) => {
+        console.log("WebSocket closed:", event.code);
+        set({ wsConnection: null });
+
+        const activePhases = ["parsing", "analyzing", "enriching", "scoring", "reporting"];
+        if (activePhases.includes(get().phase)) {
+          console.log(`Scan is active (${get().phase}). Attempting reconnect in ${reconnectDelay}ms...`);
+          clearTimeout(reconnectTimeoutId);
+          reconnectTimeoutId = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            connect();
+          }, reconnectDelay);
         }
-        
-        // Highlight when next agent gets called
-        if (agent === "Code Analysis Agent" && item.type !== 'success') {
-          updatedAgents["Orchestrator AI"] = { status: 'PROCESSING', lastInstruction: 'Inspecting AST parser callback...', load: 20 };
-        } else if (agent === "Security Review Agent" && item.type !== 'success') {
-          updatedAgents["Code Analysis Agent"] = { status: 'COMPLETED', lastInstruction: 'Baseline scan saved.', load: 0 };
-        } else if (agent === "Threat Intelligence Agent" && item.type !== 'success') {
-          updatedAgents["Security Review Agent"] = { status: 'COMPLETED', lastInstruction: 'Security models review finalized.', load: 0 };
-        } else if (agent === "Machine Learning Agent" && item.type !== 'success') {
-          updatedAgents["Threat Intelligence Agent"] = { status: 'COMPLETED', lastInstruction: 'NVD correlation finished.', load: 0 };
+      };
+
+      ws.onmessage = async (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          console.warn('WebSocket received non-JSON message:', event.data);
+          return;
         }
 
-        set({
-          logs: [...get().logs, item],
-          agents: updatedAgents
-        });
-      } else if (msg.event === 'status') {
-        const phaseName = msg.data.phase;
-        const progressVal = msg.data.progress;
-        set({ phase: phaseName, progress: progressVal });
-      } else if (msg.event === 'completed') {
-        await get().loadScanDetails(scanId);
-        await get().fetchScans();
-        await get().fetchTelemetry();
-        get().disconnectWebSocket();
-      } else if (msg.event === 'failed') {
-        set({
-           phase: "failed",
-           progress: 100
-        });
+        if (msg.event === 'ping') {
+          ws.send(JSON.stringify({ event: 'pong' }));
+          return;
+        }
 
-        get().disconnectWebSocket();
-      }
+        if (msg.event === 'log') {
+          const item: AgentLog = msg.data;
+          const updatedAgents = { ...get().agents };
+          const agent = item.agent_name;
+          
+          if (updatedAgents[agent]) {
+            const currentProgress = get().progress;
+            updatedAgents[agent] = {
+              status: item.type === 'success' ? 'COMPLETED' : 'PROCESSING',
+              lastInstruction: item.message,
+              load: item.type === 'success' ? 0 : Math.min(95, Math.max(10, currentProgress))
+            };
+          }
+          
+          if (agent === "Code Analysis Agent" && item.type !== 'success') {
+            updatedAgents["Orchestrator AI"] = { status: 'PROCESSING', lastInstruction: 'Inspecting AST parser callback...', load: 20 };
+          } else if (agent === "Security Review Agent" && item.type !== 'success') {
+            updatedAgents["Code Analysis Agent"] = { status: 'COMPLETED', lastInstruction: 'Baseline scan saved.', load: 0 };
+          } else if (agent === "Threat Intelligence Agent" && item.type !== 'success') {
+            updatedAgents["Security Review Agent"] = { status: 'COMPLETED', lastInstruction: 'Security models review finalized.', load: 0 };
+          } else if (agent === "Machine Learning Agent" && item.type !== 'success') {
+            updatedAgents["Threat Intelligence Agent"] = { status: 'COMPLETED', lastInstruction: 'NVD correlation finished.', load: 0 };
+          }
+
+          set({
+            logs: [...get().logs, item],
+            agents: updatedAgents
+          });
+        } else if (msg.event === 'status') {
+          const phaseName = msg.data.phase;
+          const progressVal = msg.data.progress;
+          set({ phase: phaseName, progress: progressVal });
+        } else if (msg.event === 'completed') {
+          clearTimeout(reconnectTimeoutId);
+          await get().loadScanDetails(scanId);
+          await get().fetchScans();
+          await get().fetchTelemetry();
+          get().disconnectWebSocket();
+        } else if (msg.event === 'failed') {
+          clearTimeout(reconnectTimeoutId);
+          set({
+             phase: "failed",
+             progress: 100
+          });
+          get().disconnectWebSocket();
+        }
+      };
     };
+
+    connect();
   },
 
   disconnectWebSocket: () => {

@@ -1,8 +1,8 @@
 import json
 import logging
-import httpx
 import time
 from typing import Any, Optional
+import groq
 
 from app.core.config import settings
 
@@ -11,101 +11,97 @@ logger = logging.getLogger("cyberverse.llm_client")
 
 class LLMClient:
     def __init__(self):
-        limits = httpx.Limits(
-            max_keepalive_connections=20,
-            max_connections=50
-        )
-        timeout = httpx.Timeout(
-            connect=30.0,
-            read=300.0,
-            write=30.0,
-            pool=30.0
-        )
-        self.client = httpx.Client(limits=limits, timeout=timeout)
-        logger.info("Initialized CyberVerse LLM Gateway targeting Nvidia NIM with persistent client pooling.")
+        self._client: Optional[groq.Groq] = None
+        logger.info("Initialized CyberVerse LLM Gateway targeting Groq Cloud.")
 
     @property
-    def nvidia_key(self) -> Optional[str]:
-        key = settings.NVIDIA_API_KEY
+    def groq_key(self) -> Optional[str]:
+        key = settings.GROQ_API_KEY
         if key:
             sanitized = key.strip().strip('"').strip("'")
-            if sanitized and sanitized not in ("your-nvidia-api-key-here", ""):
+            if sanitized and sanitized not in ("your-groq-api-key-here", ""):
                 return sanitized
         return None
 
     @property
-    def nvidia_model(self) -> str:
-        return settings.NVIDIA_MODEL or "moonshotai/kimi-k2.6"
+    def groq_model(self) -> str:
+        return settings.GROQ_MODEL or "llama-3.3-70b-versatile"
+
+    @property
+    def client(self) -> groq.Groq:
+        """Returns a cached, persistent Groq client instance."""
+        if self._client is None:
+            key = self.groq_key
+            if not key:
+                logger.warning("Groq API Key is missing. Operating without active LLM connection.")
+                # We initialize with a dummy key so it doesn't crash on boot
+                self._client = groq.Groq(api_key="dummy-key-for-local-boot")
+            else:
+                self._client = groq.Groq(api_key=key)
+        return self._client
 
     def generate_completion(self, system_prompt: str, user_prompt: str, max_retries: int = 5) -> Optional[str]:
-        """Generates a text completion via Nvidia NIM API using retry logic with backoff."""
-        key = self.nvidia_key
-        model = self.nvidia_model
+        """Generates a text completion via Groq API using retry logic with backoff."""
+        key = self.groq_key
+        model = self.groq_model
         if not key:
-            logger.warning("Nvidia API Key is absent. Utilizing deterministic local heuristics.")
+            logger.warning("Groq API Key is absent. Utilizing deterministic local heuristics.")
             return None
 
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.1,
-        }
-        
         max_attempts = 5
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.info(
-                    "Dispatching prompt to Nvidia NIM (%s) [Attempt %d/%d]...",
-                    model,
+                    "LLM request attempt %d/%d targeting Groq (%s)...",
                     attempt,
-                    max_attempts
-                )
-                response = self.client.post(
-                    "https://integrate.api.nvidia.com/v1/chat/completions",
-                    json=payload,
-                    headers=headers,
+                    max_attempts,
+                    model
                 )
                 
-                if response.status_code == 429:
-                    wait_time = 2 ** attempt
-                    logger.warning(
-                        "Rate limited by Nvidia NIM (429). Attempt %d/%d. Retrying in %d seconds...",
-                        attempt,
-                        max_attempts,
-                        wait_time
-                    )
-                    time.sleep(wait_time)
-                    continue
-                    
-                response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
-            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.NetworkError) as e:
+                chat_completion = self.client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    model=model,
+                    temperature=0.1,
+                )
+                
+                content = chat_completion.choices[0].message.content
+                logger.info("Groq API request successfully completed.")
+                return content
+
+            except groq.RateLimitError as e:
                 wait_time = 2 ** attempt
                 logger.warning(
-                    "Nvidia NIM API connection/timeout error on Attempt %d/%d (Error: %s). Retrying in %d seconds...",
+                    "Rate limited by Groq API (429) on Attempt %d/%d. Retrying in %d seconds...",
+                    attempt,
+                    max_attempts,
+                    wait_time
+                )
+                time.sleep(wait_time)
+                
+            except (groq.APIConnectionError, groq.APITimeoutError) as e:
+                wait_time = 2 ** attempt
+                logger.warning(
+                    "Groq API connection timeout or network error on Attempt %d/%d (Error: %s). Retrying in %d seconds...",
                     attempt,
                     max_attempts,
                     str(e),
                     wait_time
                 )
                 if attempt == max_attempts:
-                    logger.error("Nvidia NIM LLM connection failed after %d attempts.", max_attempts)
+                    logger.error("Groq API connection failed after %d attempts.", max_attempts)
                     raise RuntimeError(
-                        f"Nvidia NIM LLM API connection failed after {max_attempts} attempts due to time-out or network error: {e}"
+                        f"Groq API connection failed after {max_attempts} attempts due to time-out or network error: {e}"
                     ) from e
                 time.sleep(wait_time)
-            except Exception as e:
-                logger.exception("Nvidia NIM API execution encountered an unhandled exception: %s", e)
-                raise RuntimeError(f"Nvidia NIM API failed with an unhandled exception: {e}") from e
                 
-        raise RuntimeError(f"Nvidia NIM API failed after {max_attempts} attempts.")
+            except Exception as e:
+                logger.exception("Groq API execution encountered an unhandled exception: %s", e)
+                raise RuntimeError(f"Groq API failed with an unhandled exception: {e}") from e
+                
+        raise RuntimeError(f"Groq API failed after {max_attempts} attempts.")
 
     def generate_structured_json(
         self, system_prompt: str, user_prompt: str, fallback_dict: Any

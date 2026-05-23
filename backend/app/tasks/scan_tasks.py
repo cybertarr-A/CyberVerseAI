@@ -248,18 +248,37 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                 update_scan_status("analyzing", 45)
                 push_activity_log(
                     "Orchestrator AI",
-                    f"Spawning {len(chunks)} parallel Celery chunk analysis tasks targeting Nvidia NIM...",
+                    f"Spawning {len(chunks)} Celery chunk analysis tasks in controlled batches (Max 3 concurrent)...",
                     "info",
                 )
+
+                # Split chunks into sublists of size 3
+                batch_size = 3
+                batches = [chunks[i:i + batch_size] for i in range(0, len(chunks), batch_size)]
                 
-                # Execute in parallel using Celery group()
-                job = group(analyze_chunk.s(chunk) for chunk in chunks)
-                async_result = job.apply_async(queue=settings.CELERY_QUEUE_NAME)
-                
-                # Wait / collect results
-                logger.info("Enqueued parallel Celery group job. Collecting results...")
-                results = async_result.join()
-                logger.info("Parallel analysis tasks completed. Processing outcomes...")
+                results = []
+                processed_count = 0
+
+                for batch_idx, batch in enumerate(batches, 1):
+                    logger.info("Queue batch %d/%d with %d chunks...", batch_idx, len(batches), len(batch))
+                    push_activity_log(
+                        "Orchestrator AI",
+                        f"Queueing controlled chunk batch {batch_idx}/{len(batches)}...",
+                        "info"
+                    )
+                    
+                    # Spawn batch using Celery group()
+                    job = group(analyze_chunk.s(chunk) for chunk in batch)
+                    async_result = job.apply_async(queue=settings.CELERY_QUEUE_NAME)
+                    
+                    # Wait/collect results for this batch
+                    batch_results = async_result.join()
+                    results.extend(batch_results)
+                    
+                    processed_count += len(batch)
+                    logger.info("Batch %d/%d execution complete. Progress: %d/%d chunks.", batch_idx, len(batches), processed_count, len(chunks))
+
+                logger.info("Controlled batch analysis tasks completed. Processing outcomes...")
 
                 # Parse chunk processing progress
                 for idx, r in enumerate(results, 1):
