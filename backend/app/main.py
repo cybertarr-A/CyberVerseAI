@@ -107,10 +107,36 @@ STARTED_AT = time.monotonic()
 # ----------------- Lifespan (replaces deprecated on_event) -----------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown lifecycle manager."""
+    """Application startup and shutdown lifecycle manager with strict validations."""
     logger.info("CyberVerse AI starting up — initializing background services")
     setup_tracing("cyberverse-api")
     initialize_database()
+
+    # 1. Mandatory Startup Validations
+    if not settings.GROQ_API_KEY or settings.GROQ_API_KEY.strip() in ("", "your_groq_api_key_here"):
+        raise RuntimeError("CRITICAL STARTUP ERROR: GROQ_API_KEY is missing or empty.")
+
+    if not settings.GROQ_MODEL or settings.GROQ_MODEL.strip() == "":
+        raise RuntimeError("CRITICAL STARTUP ERROR: GROQ_MODEL is missing or empty.")
+
+    # Redis Connection Validation
+    import redis
+    try:
+        r = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=3.0)
+        r.ping()
+    except Exception as e:
+        raise RuntimeError(f"CRITICAL STARTUP ERROR: Failed to connect to Redis at {settings.REDIS_URL}. Error: {e}")
+
+    # Celery Broker/App Validation
+    from app.core.celery import celery_app
+    if not celery_app:
+        raise RuntimeError("CRITICAL STARTUP ERROR: Celery app failed to initialize.")
+
+    # 2. Output Verbose Checkmark Logs
+    logger.info("✓ Groq configured")
+    logger.info("Groq model loaded: %s", settings.GROQ_MODEL)
+    logger.info("✓ Redis connected")
+    logger.info("✓ Celery initialized")
 
     background_tasks: list[asyncio.Task] = []
     heartbeat_task = asyncio.create_task(ws_manager.run_heartbeat_sweep())

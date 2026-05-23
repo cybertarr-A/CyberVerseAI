@@ -4,8 +4,9 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=4 --prefetch-multiplier=1",
+    "startCommand": "celery -A app.core.celery:celery_app worker --loglevel=info --concurrency=1 --pool=solo",
     "restartPolicyType": "ON_FAILURE"
+
   },
   "env": {
     "SCAN_WORKSPACE_ROOT": "/tmp/cyberverse_scans"

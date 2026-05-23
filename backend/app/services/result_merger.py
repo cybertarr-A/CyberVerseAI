@@ -48,7 +48,8 @@ class ResultMerger:
         if failed_chunks > 0:
             report_lines.append(
                 f"\n> [!WARNING]\n"
-                f"> **{failed_chunks}** of **{total_chunks}** chunks encountered Nvidia NIM connection or timeout failures during scan pipelines. "
+                f"> **{failed_chunks}** of **{total_chunks}** chunks encountered Groq API connection or timeout failures during scan pipelines. "
+
                 f"These chunks were bypassed gracefully, and findings may be partially incomplete.\n"
             )
         
