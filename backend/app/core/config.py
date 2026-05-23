@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     CELERY_QUEUE_NAME: str = "celery"
     CELERY_TASK_TIME_LIMIT_SECONDS: int = 1800
     CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: int = 1500
+    CELERY_BATCH_SIZE: int = 5
+    CELERY_BATCH_COOLDOWN: float = 5.0
+    GROQ_MAX_CONCURRENT_REQUESTS: int = 1
+    GROQ_COOLDOWN_PERIOD: float = 2.0
 
     # Rate limiting
     RATE_LIMIT_REQUESTS: int = 100

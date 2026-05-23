@@ -208,8 +208,15 @@ def run_scan_pipeline_task(self, scan_id: str, target_reference: str, target_typ
                     "info",
                 )
 
-                # Formulate a Celery chord to process chunks in parallel and aggregate asynchronously
-                header = group(analyze_chunk.s(chunk) for chunk in chunks)
+                # Controlled batching parameters from global settings
+                batch_size = getattr(settings, "CELERY_BATCH_SIZE", 5)
+                cooldown_period = getattr(settings, "CELERY_BATCH_COOLDOWN", 5.0)
+
+                # Formulate a Celery chord to process chunks in controlled batches using staggered countdowns
+                header = group(
+                    analyze_chunk.s(chunk).set(countdown=int((idx // batch_size) * cooldown_period))
+                    for idx, chunk in enumerate(chunks)
+                )
                 callback = aggregate_scan_results.s(
                     scan_id=scan_id,
                     temp_workspace_path=temp_workspace_path,

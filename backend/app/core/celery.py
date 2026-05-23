@@ -25,6 +25,9 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,  # Tasks are acknowledged after execution for durability
     worker_prefetch_multiplier=1,  # Prevent pre-fetching for long running scanning tasks
+    worker_max_tasks_per_child=50,  # Prevent memory leaks
+    worker_max_memory_per_child=200000,  # Prevent memory bloat (max 200MB per child)
+    broker_connection_retry_on_startup=True,  # Graceful startup recovery
     task_time_limit=settings.CELERY_TASK_TIME_LIMIT_SECONDS,
     task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT_SECONDS,
     task_reject_on_worker_lost=True,  # Re-queue task if worker crashes

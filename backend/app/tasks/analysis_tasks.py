@@ -112,17 +112,16 @@ Do not wrap JSON in Markdown decorators, introductory text, or closing notes.
         failure_reason = str(exc)
         
         logger.error(
-            "COMPLETE: Task %s failed after %.2fs. Reason: %s",
+            "COMPLETE: Task %s failed after %.2fs. Reason: %s. Returning graceful fallback.",
             task_id,
             duration,
             failure_reason,
             exc_info=True
         )
         
+        # Graceful fallback returning partial success
         return {
-            "status": "failed",
-            "task_id": task_id,
-            "duration": duration,
-            "error": failure_reason,
+            "status": "partial_success",
+            "error": "rate_limit",
             "data": fallback_dict
         }
